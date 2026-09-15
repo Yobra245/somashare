@@ -1,0 +1,46 @@
+{
+  "name": "SomaShare — Student Learning Vault",
+  "short_name": "SomaShare",
+  "description": "The student-powered learning vault. Access notes, revision slides, and past papers contributed by fellow KU peers — with offline access to your downloaded content.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#175334",
+  "background_color": "#FAF8F2",
+  "lang": "en",
+  "categories": ["education", "productivity"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Upload Document",
+      "url": "/?screen=upload",
+      "description": "Contribute notes or past papers to the vault"
+    },
+    {
+      "name": "Browse Vault",
+      "url": "/?screen=browse",
+      "description": "Search units, past papers and lecture notes"
+    }
+  ]
+}

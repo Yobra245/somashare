@@ -1,0 +1,71 @@
+// SomaShare — student-powered learning vault
+// Prisma schema for users, course units, resources and download tracking
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String     @id @default(cuid())
+  email          String     @unique // must end with @ku.ac.ke (enforced at API layer)
+  name           String
+  department     String     @default("Engineering")
+  yearOfStudy    String     @default("Year 3")
+  driveConnected Boolean    @default(false)
+  driveEmail     String? // the Google account connected for BYO Drive storage
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  resources Resource[]
+  downloads Download[]
+}
+
+model Unit {
+  id         String @id @default(cuid())
+  code       String @unique // e.g. "EET 300"
+  title      String // e.g. "Electrical Machines I"
+  department String // e.g. "Engineering Department"
+  shortLabel String // e.g. "EET Elec" — chip label on Home
+  createdAt  DateTime @default(now())
+
+  resources Resource[]
+}
+
+model Resource {
+  id           String   @id @default(cuid())
+  title        String
+  unitId       String
+  unit         Unit     @relation(fields: [unitId], references: [id])
+  type         String // LECTURE_NOTES | PAST_PAPER | REVISION_SLIDES | ASSIGNMENT
+  academicYear String // "Year 1".."Year 5"
+  examYear     Int // calendar year of the paper e.g. 2024
+  semester     Int // 1 | 2
+  uploaderName String
+  uploaderId   String?
+  uploader     User?    @relation(fields: [uploaderId], references: [id])
+  fileName     String
+  fileSize     Int // bytes
+  mimeType     String
+  driveFileId  String? // Google Drive file id (or sandbox-simulated id)
+  webViewLink  String? // Drive viewer link
+  verified     Boolean  @default(false)
+  downloadCount Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  downloadEvents Download[]
+}
+
+model Download {
+  id         String   @id @default(cuid())
+  resourceId String
+  resource   Resource @relation(fields: [resourceId], references: [id])
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  createdAt  DateTime @default(now())
+}

@@ -1,0 +1,67 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 6 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Times-Bold >>
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Times-Roman >>
+endobj
+6 0 obj
+<< /Length 714 >>
+stream
+BT
+/F1 20 Tf
+64 780 Td
+(SIT 102: Introduction to Database Systems - 2024 End Sem) Tj
+/F2 11 Tf
+0 -34 Td
+18 TL
+(KENYATTA UNIVERSITY) Tj
+T*
+(END OF SEMESTER EXAMINATION  2024) Tj
+T*
+(UNIT: SIT 102  Introduction to Database Systems) Tj
+T*
+(TIME: 2 HOURS   ANSWER QUESTION ONE AND ANY OTHER TWO) Tj
+T*
+() Tj
+T*
+(Q1. \(30 marks\) Define the following terms as used in databases:) Tj
+T*
+(\(a\) Data independence \(b\) Candidate key \(c\) Normalisation) Tj
+T*
+(Q2. \(20 marks\) Draw an ERD for a university library system.) Tj
+T*
+(Q3. \(20 marks\) Write SQL to create and query STUDENT tables.) Tj
+T*
+(Q4. \(20 marks\) Explain ACID properties with examples.) Tj
+T*
+() Tj
+T*
+(Shared for revision purposes only.) Tj
+T*
+ET
+endstream
+endobj
+xref
+0 7
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000251 00000 n 
+0000000322 00000 n 
+0000000394 00000 n 
+trailer
+<< /Size 7 /Root 1 0 R >>
+startxref
+1159
+%%EOF
