@@ -60,6 +60,10 @@ export function clientIp(req: Request): string {
 export const limits = {
   /** Mailing-list signups: 5 per IP per hour. */
   subscribe: (req: Request) => rateLimit(`sub:${clientIp(req)}`, 5, 60 * 60 * 1000),
+  /** Account sign-ups: 5 per IP per hour (stricter — creates credentials). */
+  signup: (req: Request) => rateLimit(`signup:${clientIp(req)}`, 5, 60 * 60 * 1000),
+  /** Password sign-in attempts: 10 per IP per 10 minutes (brute-force blunt). */
+  passwordSignin: (req: Request) => rateLimit(`psign:${clientIp(req)}`, 10, 10 * 60 * 1000),
   /** Resource uploads: 10 per user per hour. */
   upload: (userId: string) => rateLimit(`up:${userId}`, 10, 60 * 60 * 1000),
   /** Downloads: 60 per user per minute (also covers scraping bursts). */

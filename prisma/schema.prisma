@@ -15,8 +15,9 @@ datasource db {
 
 model User {
   id                String   @id @default(cuid())
-  email             String   @unique // must end with @ku.ac.ke (enforced at OAuth callback)
+  email             String   @unique // must end with @ku.ac.ke (enforced at signup/OAuth callback)
   name              String
+  passwordHash      String? // scrypt hash (email+password accounts); null for Google-only accounts
   department        String   @default("Engineering")
   yearOfStudy       String   @default("Year 3")
   driveConnected    Boolean  @default(false)

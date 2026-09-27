@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth";
 import { providerForUser } from "@/lib/storage";
+import { oauthConfigured } from "@/lib/google";
 import { decryptToken } from "@/lib/crypto";
 import { limits } from "@/lib/rate-limit";
 import { isProd } from "@/lib/env";
@@ -146,7 +147,10 @@ export async function POST(req: Request) {
       { status: 400 }
     );
   }
-  if (!user.driveConnected) {
+  // Production requires a real BYO-Drive connection. In the sandbox (no
+  // Google OAuth configured) storage is simulated locally, so email-only
+  // accounts can still experience the full upload flow.
+  if (!user.driveConnected && oauthConfigured()) {
     return NextResponse.json(
       { error: "Connect your Google Drive first — the vault runs on peer-contributed storage." },
       { status: 409 }

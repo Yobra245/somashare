@@ -109,3 +109,28 @@ export async function getSessionUser(): Promise<SessionUserWithAdmin | null> {
 export function isValidStudentEmail(email: string): boolean {
   return /^[^\s@]+@ku\.ac\.ke$/i.test(email.trim().toLowerCase());
 }
+
+/**
+ * Consistent public user payload returned by sign-in / sign-up / me
+ * endpoints (single source of truth so the shapes never drift).
+ */
+export function publicUserPayload(user: {
+  id: string;
+  email: string;
+  name: string;
+  department: string;
+  yearOfStudy: string;
+  driveConnected: boolean;
+  driveEmail: string | null;
+}): SessionUserWithAdmin {
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    department: user.department,
+    yearOfStudy: user.yearOfStudy,
+    driveConnected: user.driveConnected,
+    driveEmail: user.driveEmail,
+    isAdmin: isAdminEmail(user.email),
+  };
+}

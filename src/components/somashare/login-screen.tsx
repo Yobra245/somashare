@@ -6,7 +6,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { GraduationCap, BadgeCheck, ShieldCheck, Loader2, Mail, Users } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { GraduationCap, ShieldCheck, Loader2, Mail, Users, Eye, EyeOff, Copy, Info } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { SessionUser } from "@/lib/types";
 
@@ -19,14 +20,13 @@ const AUTH_ERRORS: Record<string, string> = {
   state: "Sign-in session expired — please try again.",
   exchange: "Google sign-in failed — please try again.",
   missing_params: "Sign-in was interrupted — please try again.",
-  unconfigured: "Google sign-in is not configured on this deployment yet.",
+  unconfigured: "Google sign-in is not configured on this deployment yet — use email sign-in below.",
   rate: "Too many attempts — wait a minute and try again.",
 };
 
 const DEMO_CREDENTIALS = { email: "alex.ochieng@ku.ac.ke", name: "Alex Ochieng", department: "Engineering", yearOfStudy: "Year 3" };
 
 export function LoginScreen({ onSignedIn }: LoginScreenProps) {
-  const [joinOpen, setJoinOpen] = useState(false);
   const [flags, setFlags] = useState<{ googleConfigured: boolean; demoEnabled: boolean }>({
     googleConfigured: false,
     demoEnabled: false,
@@ -34,7 +34,26 @@ export function LoginScreen({ onSignedIn }: LoginScreenProps) {
   const [authError, setAuthError] = useState<string | null>(null);
   const [busyDemo, setBusyDemo] = useState(false);
 
-  // Join form
+  // Google setup dialog (shown when OAuth credentials are missing)
+  const [googleHelpOpen, setGoogleHelpOpen] = useState(false);
+  const [redirectUri, setRedirectUri] = useState("");
+
+  // Sign-in form
+  const [inEmail, setInEmail] = useState("");
+  const [inPassword, setInPassword] = useState("");
+  const [showInPassword, setShowInPassword] = useState(false);
+  const [busyIn, setBusyIn] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  // Sign-up form
+  const [upName, setUpName] = useState("");
+  const [upEmail, setUpEmail] = useState("");
+  const [upPassword, setUpPassword] = useState("");
+  const [showUpPassword, setShowUpPassword] = useState(false);
+  const [busyUp, setBusyUp] = useState(false);
+
+  // Mailing-list-only join dialog (non-students / just updates)
+  const [joinOpen, setJoinOpen] = useState(false);
   const [joinName, setJoinName] = useState("");
   const [joinEmail, setJoinEmail] = useState("");
   const [joinBusy, setJoinBusy] = useState(false);
@@ -49,11 +68,93 @@ export function LoginScreen({ onSignedIn }: LoginScreenProps) {
       )
       .catch(() => undefined);
 
+    setRedirectUri(`${window.location.origin}/api/auth/google/callback`);
     const params = new URLSearchParams(window.location.search);
     const err = params.get("auth_error");
     if (err) setAuthError(AUTH_ERRORS[err] ?? "Sign-in failed — please try again.");
   }, []);
 
+  const copyRedirectUri = async () => {
+    try {
+      await navigator.clipboard.writeText(redirectUri);
+      toast({ title: "Copied", description: "Paste this as an Authorized redirect URI in Google Cloud Console." });
+    } catch {
+      toast({ title: "Copy failed", description: "Copy it manually: " + redirectUri, variant: "destructive" });
+    }
+  };
+
+  /* ---------------- Google ---------------- */
+  const googleButtonClick = () => {
+    setAuthError(null);
+    if (flags.googleConfigured) {
+      window.location.href = "/api/auth/google/start";
+    } else {
+      setGoogleHelpOpen(true);
+    }
+  };
+
+  /* ---------------- Sign in (email + password) ---------------- */
+  const signIn = async () => {
+    setFormError(null);
+    if (!inEmail.trim() || !inPassword) {
+      setFormError("Enter your email and password.");
+      return;
+    }
+    setBusyIn(true);
+    try {
+      const res = await fetch("/api/auth/signin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: inEmail.trim(), password: inPassword }),
+      });
+      const data = (await res.json()) as { user?: SessionUser; error?: string };
+      if (!res.ok || !data.user) throw new Error(data.error ?? "Sign-in failed");
+      toast({ title: `Karibu back, ${data.user.name.split(" ")[0]}!`, description: "The vault missed you." });
+      onSignedIn(data.user);
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "Sign-in failed");
+    } finally {
+      setBusyIn(false);
+    }
+  };
+
+  /* ---------------- Sign up (create account) ---------------- */
+  const signUp = async () => {
+    setFormError(null);
+    if (upName.trim().length < 2) {
+      setFormError("Enter your full name.");
+      return;
+    }
+    if (!upEmail.trim()) {
+      setFormError("Enter your @ku.ac.ke email.");
+      return;
+    }
+    if (upPassword.length < 8) {
+      setFormError("Password must be at least 8 characters.");
+      return;
+    }
+    setBusyUp(true);
+    try {
+      const res = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: upName.trim(), email: upEmail.trim(), password: upPassword }),
+      });
+      const data = (await res.json()) as { user?: SessionUser; error?: string };
+      if (!res.ok || !data.user) throw new Error(data.error ?? "Could not create your account");
+      toast({
+        title: `Karibu, ${data.user.name.split(" ")[0]}! 🎓`,
+        description: "Account created — you're on the list for launch updates too.",
+      });
+      onSignedIn(data.user);
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "Could not create your account");
+    } finally {
+      setBusyUp(false);
+    }
+  };
+
+  /* ---------------- Demo (dev only) ---------------- */
   const demoSignIn = async () => {
     setBusyDemo(true);
     setAuthError(null);
@@ -74,6 +175,7 @@ export function LoginScreen({ onSignedIn }: LoginScreenProps) {
     }
   };
 
+  /* ---------------- Mailing-list-only join ---------------- */
   const join = async () => {
     if (!joinEmail.trim()) {
       toast({ title: "Add your email first", variant: "destructive" });
@@ -146,12 +248,10 @@ export function LoginScreen({ onSignedIn }: LoginScreenProps) {
           </Select>
         </section>
 
-        {/* Google sign-in */}
+        {/* Google sign-in / setup */}
         <Button
           type="button"
-          onClick={() => {
-            window.location.href = "/api/auth/google/start";
-          }}
+          onClick={googleButtonClick}
           className="mt-4 h-13 w-full rounded-xl border border-line bg-card py-4 text-base font-semibold text-ink shadow-sm hover:bg-muted"
           variant="outline"
         >
@@ -163,15 +263,172 @@ export function LoginScreen({ onSignedIn }: LoginScreenProps) {
           connects your Drive storage — every upload lives in <em>your own</em> Drive.
         </p>
 
-        {/* Mailing list */}
-        <Button
+        {/* Email account: sign in / sign up */}
+        <Tabs defaultValue="signin" className="mt-6">
+          <TabsList className="grid h-12 w-full grid-cols-2 rounded-xl border border-line bg-cream-deep p-1">
+            <TabsTrigger
+              value="signin"
+              className="rounded-lg text-sm font-semibold text-ink-muted data-[state=active]:bg-card data-[state=active]:text-ink data-[state=active]:shadow-sm"
+            >
+              Sign in
+            </TabsTrigger>
+            <TabsTrigger
+              value="signup"
+              className="rounded-lg text-sm font-semibold text-ink-muted data-[state=active]:bg-card data-[state=active]:text-ink data-[state=active]:shadow-sm"
+            >
+              Create account
+            </TabsTrigger>
+          </TabsList>
+
+          {formError && (
+            <p role="alert" className="mt-3 rounded-xl bg-pumpkin-tint px-4 py-3 text-sm font-medium text-pumpkin-deep">
+              {formError}
+            </p>
+          )}
+
+          {/* --- Sign in --- */}
+          <TabsContent value="signin" className="mt-4">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void signIn();
+              }}
+              className="space-y-4"
+            >
+              <div className="space-y-1.5">
+                <Label htmlFor="in-email" className="text-sm font-semibold text-ink">
+                  Student email
+                </Label>
+                <Input
+                  id="in-email"
+                  type="email"
+                  autoComplete="email"
+                  placeholder="you@ku.ac.ke"
+                  value={inEmail}
+                  onChange={(e) => setInEmail(e.target.value)}
+                  className="h-11 rounded-xl border-line bg-card"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="in-password" className="text-sm font-semibold text-ink">
+                  Password
+                </Label>
+                <div className="relative">
+                  <Input
+                    id="in-password"
+                    type={showInPassword ? "text" : "password"}
+                    autoComplete="current-password"
+                    placeholder="Your password"
+                    value={inPassword}
+                    onChange={(e) => setInPassword(e.target.value)}
+                    className="h-11 rounded-xl border-line bg-card pr-11"
+                  />
+                  <button
+                    type="button"
+                    aria-label={showInPassword ? "Hide password" : "Show password"}
+                    onClick={() => setShowInPassword((v) => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-muted hover:text-ink"
+                  >
+                    {showInPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+              <Button
+                type="submit"
+                disabled={busyIn}
+                className="h-12 w-full rounded-xl bg-forest text-base font-semibold text-cream hover:bg-forest-deep"
+              >
+                {busyIn ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                {busyIn ? "Signing you in…" : "Sign in"}
+              </Button>
+            </form>
+          </TabsContent>
+
+          {/* --- Sign up --- */}
+          <TabsContent value="signup" className="mt-4">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void signUp();
+              }}
+              className="space-y-4"
+            >
+              <div className="space-y-1.5">
+                <Label htmlFor="up-name" className="text-sm font-semibold text-ink">
+                  Full name
+                </Label>
+                <Input
+                  id="up-name"
+                  autoComplete="name"
+                  placeholder="Alex Ochieng"
+                  value={upName}
+                  onChange={(e) => setUpName(e.target.value)}
+                  className="h-11 rounded-xl border-line bg-card"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="up-email" className="text-sm font-semibold text-ink">
+                  Student email
+                </Label>
+                <Input
+                  id="up-email"
+                  type="email"
+                  autoComplete="email"
+                  placeholder="you@ku.ac.ke"
+                  value={upEmail}
+                  onChange={(e) => setUpEmail(e.target.value)}
+                  className="h-11 rounded-xl border-line bg-card"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="up-password" className="text-sm font-semibold text-ink">
+                  Password
+                </Label>
+                <div className="relative">
+                  <Input
+                    id="up-password"
+                    type={showUpPassword ? "text" : "password"}
+                    autoComplete="new-password"
+                    placeholder="At least 8 characters"
+                    value={upPassword}
+                    onChange={(e) => setUpPassword(e.target.value)}
+                    className="h-11 rounded-xl border-line bg-card pr-11"
+                  />
+                  <button
+                    type="button"
+                    aria-label={showUpPassword ? "Hide password" : "Show password"}
+                    onClick={() => setShowUpPassword((v) => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-muted hover:text-ink"
+                  >
+                    {showUpPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+              <Button
+                type="submit"
+                disabled={busyUp}
+                className="h-12 w-full rounded-xl bg-forest text-base font-semibold text-cream hover:bg-forest-deep"
+              >
+                {busyUp ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                {busyUp ? "Creating your account…" : "Create my account"}
+              </Button>
+              <p className="text-center text-xs leading-relaxed text-ink-muted">
+                Creating an account also adds you to the SomaShare email list — launch updates and study-season tips,
+                no spam.
+              </p>
+            </form>
+          </TabsContent>
+        </Tabs>
+
+        {/* Mailing-list-only option for non-students */}
+        <button
           type="button"
           onClick={() => setJoinOpen(true)}
-          className="mt-3 h-12 w-full rounded-xl bg-forest-tint text-base font-semibold text-forest hover:bg-forest hover:text-cream"
-          variant="outline"
+          className="mt-5 flex w-full items-center justify-center gap-2 text-sm font-medium text-forest underline-offset-2 hover:underline"
         >
-          <Users className="mr-2 h-5 w-5" /> Not a student yet? Join the community
-        </Button>
+          <Users className="h-4 w-4" />
+          Not a KU student? Just get email updates
+        </button>
 
         {flags.demoEnabled && (
           <button
@@ -197,7 +454,53 @@ export function LoginScreen({ onSignedIn }: LoginScreenProps) {
         </footer>
       </main>
 
-      {/* Join the community dialog */}
+      {/* Google OAuth setup dialog — shown when credentials are missing */}
+      <Dialog open={googleHelpOpen} onOpenChange={setGoogleHelpOpen}>
+        <DialogContent className="mx-auto max-w-md rounded-2xl bg-cream">
+          <DialogHeader>
+            <DialogTitle className="font-display flex items-center gap-2 text-xl font-bold text-ink">
+              <Info className="h-5 w-5 text-pumpkin" /> Google sign-in isn&apos;t set up yet
+            </DialogTitle>
+            <DialogDescription className="text-sm leading-relaxed text-ink-muted">
+              This deployment is missing Google OAuth credentials. The site owner can enable it in a few minutes —
+              meanwhile, use <span className="font-semibold text-ink">email sign-in below</span>.
+            </DialogDescription>
+          </DialogHeader>
+          <ol className="list-decimal space-y-2 pl-5 text-sm text-ink">
+            <li>
+              Open <span className="font-medium">Google Cloud Console → APIs &amp; Services → Credentials</span> and
+              create an <span className="font-medium">OAuth client ID (Web application)</span>.
+            </li>
+            <li>
+              Add this exact Authorized redirect URI:
+              <span className="mt-1 flex items-center gap-2 rounded-lg border border-line bg-card px-3 py-2 font-mono text-xs text-ink">
+                <span className="flex-1 break-all">{redirectUri}</span>
+                <button
+                  type="button"
+                  aria-label="Copy redirect URI"
+                  onClick={copyRedirectUri}
+                  className="shrink-0 text-forest hover:text-forest-deep"
+                >
+                  <Copy className="h-4 w-4" />
+                </button>
+              </span>
+            </li>
+            <li>
+              Set <span className="font-mono text-xs">GOOGLE_CLIENT_ID</span> and{" "}
+              <span className="font-mono text-xs">GOOGLE_CLIENT_SECRET</span> in the deployment environment (see
+              README → Google OAuth setup).
+            </li>
+          </ol>
+          <Button
+            onClick={() => setGoogleHelpOpen(false)}
+            className="h-11 w-full rounded-xl bg-forest text-sm font-semibold text-cream hover:bg-forest-deep"
+          >
+            Got it — use email for now
+          </Button>
+        </DialogContent>
+      </Dialog>
+
+      {/* Join the community dialog (mailing list only) */}
       <Dialog open={joinOpen} onOpenChange={setJoinOpen}>
         <DialogContent className="mx-auto max-w-sm rounded-2xl bg-cream">
           <DialogHeader>

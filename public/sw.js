@@ -8,7 +8,7 @@
  *  - Resource downloads     → network-first; every successful download is
  *    mirrored into the DOWNLOADS cache so it can be reopened offline.
  */
-const VERSION = "v1";
+const VERSION = "v2";
 const SHELL_CACHE = `soma-shell-${VERSION}`;
 const DATA_CACHE = `soma-data-${VERSION}`;
 const DOWNLOAD_CACHE = "soma-downloads"; // versionless: saved papers survive deploys
@@ -69,6 +69,13 @@ self.addEventListener("fetch", (event) => {
 
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
+
+  // ---- auth state: NEVER cached (network only) ----
+  // A cached /api/auth/me would show a stale signed-in user after
+  // sign-out (or serve someone else's cached session on a shared
+  // device). Session, sign-in and sign-out responses must always be
+  // fresh — let the browser handle them without respondWith().
+  if (url.pathname.startsWith("/api/auth/")) return;
 
   // ---- saved downloads: network-first, mirror into DOWNLOADS cache ----
   if (downloadMatch(url.pathname)) {

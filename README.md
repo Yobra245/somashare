@@ -27,7 +27,7 @@ Built from a custom Figma design (cream / forest-green / pumpkin palette, serif 
 - **Styling** — Tailwind CSS 4 + shadcn/ui, custom design tokens in `globals.css`
 - **State** — Zustand (UI state) + TanStack Query (server state)
 - **Database** — Prisma ORM · PostgreSQL in production (Neon/Supabase), SQLite for local dev
-- **Auth** — Google OAuth 2.0 + compact HMAC-signed session cookies (httpOnly, expiring, `__Secure-` prefixed in production)
+- **Auth** — Google OAuth 2.0 *or* email + password accounts (scrypt-hashed); compact HMAC-signed session cookies (httpOnly, expiring, `__Secure-` prefixed in production)
 - **PWA** — Web App Manifest, custom Service Worker (precache shell, stale-while-revalidate static assets, network-first API with cache fallback, download mirroring into a dedicated cache)
 - **Storage** — pluggable `StorageProvider`: per-student Google Drive (production) or a sandbox filesystem provider (dev)
 - **Quality** — Vitest unit tests, ESLint, GitHub Actions CI, strict TypeScript builds
@@ -124,7 +124,8 @@ SomaShare is designed for **Vercel + Postgres + per-student Drive storage** — 
 │  │  ├─ page.tsx               # Single-screen app shell (SPA-style)
 │  │  └─ api/
 │  │     ├─ auth/google/*       # OAuth start + callback (@ku.ac.ke enforced)
-│  │     ├─ auth/signin         # DEV-ONLY demo sign-in (404 in production)
+│  │     ├─ auth/signup         # create account (email + scrypt password) → adds to mailing list
+│  │     ├─ auth/signin         # password sign-in + DEV-ONLY demo sign-in (demo 404s in production)
 │  │     ├─ resources/*         # vault catalog, PDF uploads, downloads
 │  │     ├─ subscribe           # mailing-list signup
 │  │     ├─ drive               # Drive status / disconnect (revoke)
@@ -148,7 +149,7 @@ SomaShare is designed for **Vercel + Postgres + per-student Drive storage** — 
 
 ## 🔒 Privacy & security notes
 
-- Sign-in is restricted to `@ku.ac.ke` **and verified server-side** after the OAuth token exchange — the domain cannot be spoofed from the client.
+- Sign-in is restricted to `@ku.ac.ke`. Google OAuth verifies the domain server-side after the token exchange; password accounts are validated at sign-up and stored with scrypt hashes (never plaintext). Password sign-in returns a generic error and runs one scrypt verification even for unknown emails, so the endpoint can't be used to enumerate accounts.
 - Session cookies are HMAC-signed with an expiring payload, `httpOnly`, `SameSite=Lax`, and `Secure` + `__Secure-`-prefixed in production. `SESSION_SECRET` is mandatory in production (the app refuses to boot without it).
 - Only real PDFs (magic-byte verified) can be uploaded; filenames are sanitized against path traversal and header injection.
 - The browse/download APIs require a session; uploads and downloads are rate-limited.
