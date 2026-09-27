@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
@@ -59,10 +59,23 @@ export function UploadScreen({ user, onPublished }: UploadScreenProps) {
 
   const units = unitsData?.units ?? [];
   const selectedUnit = units.find((u) => u.id === unitId);
+  const googleConfigured = useAppStore((s) => s.googleConfigured);
+
+  useEffect(() => {
+    // Public capability flag from /api/auth/me (cached by the app shell)
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then((d: { googleConfigured?: boolean }) => useAppStore.setState({ googleConfigured: !!d.googleConfigured }))
+      .catch(() => undefined);
+  }, []);
 
   const pickFile = (f: File | null) => {
     if (f && f.size > 25 * 1024 * 1024) {
       toast({ title: "File too large", description: "Maximum size is 25 MB.", variant: "destructive" });
+      return;
+    }
+    if (f && f.type !== "application/pdf" && !/\.pdf$/i.test(f.name)) {
+      toast({ title: "PDF only", description: "The vault accepts real PDF study documents.", variant: "destructive" });
       return;
     }
     setFile(f);
@@ -78,6 +91,12 @@ export function UploadScreen({ user, onPublished }: UploadScreenProps) {
       return;
     }
     if (!user.driveConnected) {
+      // Production: Drive consent happens in the Google sign-in flow —
+      // send the student through (re-)consent. Sandbox: simulate it.
+      if (googleConfigured) {
+        window.location.href = "/api/auth/google/start";
+        return;
+      }
       setDriveDialog(true);
       return;
     }
@@ -104,7 +123,7 @@ export function UploadScreen({ user, onPublished }: UploadScreenProps) {
 
       toast({
         title: "Published to the Vault!",
-        description: "Fellow students can now revise from your contribution.",
+        description: "A moderator will review it shortly — thanks for contributing!",
       });
       await queryClient.invalidateQueries({ queryKey: ["resources"] });
       await queryClient.invalidateQueries({ queryKey: ["profile"] });
@@ -225,7 +244,7 @@ export function UploadScreen({ user, onPublished }: UploadScreenProps) {
 
         {/* File picker */}
         <div className="space-y-1.5">
-          <Label className="text-sm font-semibold text-ink">File (PDF, DOCX, PPT, images — max 25 MB)</Label>
+          <Label className="text-sm font-semibold text-ink">File (PDF only — max 25 MB)</Label>
           {file ? (
             <div className="flex items-center justify-between rounded-xl border border-forest/40 bg-forest-tint px-4 py-3">
               <div className="flex min-w-0 items-center gap-2.5">
@@ -252,7 +271,7 @@ export function UploadScreen({ user, onPublished }: UploadScreenProps) {
             ref={fileInputRef}
             type="file"
             className="hidden"
-            accept=".pdf,.doc,.docx,.ppt,.pptx,image/*"
+            accept="application/pdf,.pdf"
             onChange={(e) => pickFile(e.target.files?.[0] ?? null)}
           />
         </div>

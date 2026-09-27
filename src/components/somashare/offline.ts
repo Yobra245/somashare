@@ -63,8 +63,8 @@ export async function saveOffline(resource: ResourceDTO): Promise<OfflineEntry> 
 
 export async function removeOffline(resourceId: string): Promise<void> {
   const cache = await caches.open(DOWNLOAD_CACHE);
-  await cache.delete(downloadUrl(resource.id));
-  await cache.delete(downloadUrl(resource.id, true));
+  await cache.delete(downloadUrl(resourceId));
+  await cache.delete(downloadUrl(resourceId, true));
   writeIndex(readIndex().filter((e) => e.resource.id !== resourceId));
 }
 

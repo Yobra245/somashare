@@ -1,26 +1,28 @@
 /**
- * SomaShare storage layer — "Bring Your Own Drive".
+ * SomaShare storage layer — "Every student brings the storage."
  *
- * Every student who signs in connects their Google account, so uploaded
- * revision material is hosted on the contributors' own Google Drive
- * storage (drive.file scope) instead of costing the platform money.
+ * Uploads live in the CONTRIBUTOR'S own Google Drive (drive.file scope),
+ * so platform storage cost stays ~zero and grows with the community.
+ * Downloads stream through the app using the uploader's stored
+ * (encrypted) refresh token — files are shared view-only with anyone
+ * holding the link, but are only distributed to signed-in students.
  *
- * Two providers implement the same StorageProvider contract:
+ * Providers:
  *
- *  - SandboxDriveProvider  (default) — simulates a Drive backend on the
- *    server filesystem so the full product flow can be exercised without
- *    real Google credentials.
+ *  - SandboxDriveProvider (default in dev) — simulates Drive on the
+ *    local filesystem so the full product flow works with zero config.
  *
- *  - GoogleDriveProvider  (production) — talks to the real Drive REST API
- *    v3. Enable by setting GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and
- *    GOOGLE_REFRESH_TOKEN (or per-user refresh tokens) in the environment.
+ *  - PerUserDriveProvider (production) — talks to Drive REST v3 with
+ *    the individual student's OAuth refresh token. Each student uploads
+ *    to THEIR Drive; peers download through the app.
  *
- * The rest of the app only depends on the interface below, so switching
- * providers requires zero UI/API changes.
+ * The rest of the app depends only on the StorageProvider interface +
+ * providerForUser(), so providers stay swappable with zero API changes.
  */
 import { mkdirSync, readFileSync, writeFileSync, unlinkSync, existsSync, readdirSync } from "fs";
 import path from "path";
 import { createHash, randomBytes } from "crypto";
+import { refreshAccessToken, oauthConfigured } from "./google";
 
 export interface StoredFile {
   driveFileId: string;
@@ -89,9 +91,9 @@ export class SandboxDriveProvider implements StorageProvider {
   }
 
   async delete(driveFileId: string): Promise<void> {
-    const safeName = `${driveFileId}${path.extname("")}`;
-    const target = path.join(STORAGE_DIR, safeName);
-    if (existsSync(target)) unlinkSync(target);
+    const dir = path.join(STORAGE_DIR);
+    const match = existsSync(dir) ? readdirSync(dir).find((f) => f.startsWith(driveFileId)) : undefined;
+    if (match) unlinkSync(path.join(dir, match));
   }
 
   describe(): string {
@@ -100,48 +102,38 @@ export class SandboxDriveProvider implements StorageProvider {
 }
 
 /* ------------------------------------------------------------------ */
-/* Production provider — real Google Drive REST API v3                 */
+/* Production provider — per-student Google Drive (REST API v3)        */
 /* ------------------------------------------------------------------ */
 
-const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const UPLOAD_URL = "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart";
 const API_BASE = "https://www.googleapis.com/drive/v3/files";
 
-function driveAccessToken(): Promise<string> {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
-  if (!clientId || !clientSecret || !refreshToken) {
-    throw new Error(
-      "Google Drive credentials missing. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN."
-    );
-  }
-  return fetch(TOKEN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: clientId,
-      client_secret: clientSecret,
-      refresh_token: refreshToken,
-      grant_type: "refresh_token",
-    }),
-  }).then(async (res) => {
-    if (!res.ok) throw new Error(`Google token refresh failed (${res.status})`);
-    const json = (await res.json()) as { access_token: string };
-    return json.access_token;
-  });
+/* Small in-memory cache: refresh-token-hash → {accessToken, exp} so we
+ * don't hit Google's token endpoint on every request within a lambda. */
+const tokenCache = new Map<string, { token: string; exp: number }>();
+
+async function accessTokenFor(refreshToken: string): Promise<string> {
+  const cacheKey = createHash("sha256").update(refreshToken).digest("hex").slice(0, 32);
+  const cached = tokenCache.get(cacheKey);
+  if (cached && cached.exp > Date.now() + 60_000) return cached.token;
+
+  const { accessToken, expiresInSec } = await refreshAccessToken(refreshToken);
+  tokenCache.set(cacheKey, { token: accessToken, exp: Date.now() + expiresInSec * 1000 });
+  return accessToken;
 }
 
-export class GoogleDriveProvider implements StorageProvider {
-  readonly name = "google-drive";
+export class PerUserDriveProvider implements StorageProvider {
+  readonly name = "google-drive-per-user";
+
+  constructor(private readonly refreshToken: string) {}
 
   async upload(bytes: Buffer, meta: DriveUploadMeta): Promise<StoredFile> {
-    const token = await driveAccessToken();
+    const token = await accessTokenFor(this.refreshToken);
     const boundary = `soma_${createHash("md5").update(meta.fileName + Date.now()).digest("hex")}`;
     const metadata = JSON.stringify({
       name: meta.fileName,
       mimeType: meta.mimeType,
-      // drive.file scope: app sees only the files it created
+      // drive.file scope: the app sees only the files it created
       appProperties: { owner: meta.ownerEmail, title: meta.title, source: "somashare" },
     });
     const body =
@@ -158,10 +150,10 @@ export class GoogleDriveProvider implements StorageProvider {
       },
       body: new Uint8Array(payload),
     });
-    if (!res.ok) throw new Error(`Drive upload failed (${res.status}): ${await res.text()}`);
+    if (!res.ok) throw new Error(`Drive upload failed (${res.status}): ${(await res.text()).slice(0, 200)}`);
     const file = (await res.json()) as { id: string; webViewLink?: string };
 
-    // Share view-only with anyone holding the link (vault peers)
+    // Share view-only with anyone holding the link (vault peers download via the app)
     await fetch(`${API_BASE}/${file.id}/permissions`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -176,7 +168,7 @@ export class GoogleDriveProvider implements StorageProvider {
   }
 
   async read(driveFileId: string): Promise<Buffer> {
-    const token = await driveAccessToken();
+    const token = await accessTokenFor(this.refreshToken);
     const res = await fetch(`${API_BASE}/${driveFileId}?alt=media`, {
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -185,7 +177,7 @@ export class GoogleDriveProvider implements StorageProvider {
   }
 
   async delete(driveFileId: string): Promise<void> {
-    const token = await driveAccessToken();
+    const token = await accessTokenFor(this.refreshToken);
     await fetch(`${API_BASE}/${driveFileId}`, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
@@ -193,14 +185,29 @@ export class GoogleDriveProvider implements StorageProvider {
   }
 
   describe(): string {
-    return "Google Drive — files hosted on contributors' own Drive (drive.file scope)";
+    return "Google Drive — files hosted on each contributor's own Drive (drive.file scope)";
   }
 }
 
 /* ------------------------------------------------------------------ */
 
-export function getStorageProvider(): StorageProvider {
-  const useReal =
-    !!process.env.GOOGLE_CLIENT_ID && !!process.env.GOOGLE_CLIENT_SECRET && !!process.env.GOOGLE_REFRESH_TOKEN;
-  return useReal ? new GoogleDriveProvider() : new SandboxDriveProvider();
+/**
+ * Pick the storage provider for an operation.
+ *
+ * @param userRefreshToken — the (decrypted) Drive refresh token of the
+ *   user who OWNS the operation (uploader for uploads; the resource's
+ *   original uploader for reads/deletes).
+ *
+ * Returns null when production OAuth is configured but the user has no
+ * usable Drive token → callers respond with a clear "reconnect" error.
+ */
+export function providerForUser(userRefreshToken: string | null | undefined): StorageProvider | null {
+  if (!oauthConfigured()) return new SandboxDriveProvider(); // dev/sandbox
+  if (!userRefreshToken) return null; // production, Drive not connected
+  return new PerUserDriveProvider(userRefreshToken);
+}
+
+/** True when the app runs against the simulated sandbox storage. */
+export function isSandboxStorage(): boolean {
+  return !oauthConfigured();
 }

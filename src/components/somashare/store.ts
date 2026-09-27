@@ -16,6 +16,7 @@ interface AppState {
   semFilter: string; // "ALL" | "1" | "2"
   searchQuery: string;
   searchMode: boolean;
+  googleConfigured: boolean; // real Google OAuth available (from /api/auth/me)
 
   setScreen: (s: Screen) => void;
   openUnit: (unitId: string | null) => void;
@@ -37,6 +38,7 @@ export const useAppStore = create<AppState>((set) => ({
   semFilter: "ALL",
   searchQuery: "",
   searchMode: false,
+  googleConfigured: false,
 
   setScreen: (screen) => set({ screen }),
   openUnit: (selectedUnitId) =>

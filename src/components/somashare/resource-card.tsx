@@ -49,6 +49,11 @@ export function ResourceCard({ resource, onOpen, onDownload, showUnitCode = true
           {RESOURCE_TYPE_LABELS[resource.type].toUpperCase()}
         </Badge>
         <div className="flex items-center gap-1.5">
+          {!resource.verified && (
+            <span className="rounded-md bg-cream-deep px-1.5 py-0.5 text-[10px] font-semibold text-ink-muted" title="Awaiting moderator review">
+              PENDING
+            </span>
+          )}
           {saved && <WifiOff className="h-3.5 w-3.5 text-forest" aria-label="Available offline" />}
           {showUnitCode && <span className="text-xs font-medium text-ink-muted">{resource.unit.code}</span>}
         </div>

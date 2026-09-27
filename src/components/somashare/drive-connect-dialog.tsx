@@ -89,8 +89,8 @@ export function DriveConnectDialog({ open, onOpenChange, studentEmail, onConnect
 
           <p className="border-t border-line pt-3 text-[11px] leading-relaxed text-ink-muted">
             Sandbox note: Google OAuth credentials are not configured in this environment, so this consent step is
-            simulated. Add <span className="font-mono">GOOGLE_CLIENT_ID</span> /{" "}
-            <span className="font-mono">GOOGLE_CLIENT_SECRET</span> to switch to real Drive uploads — no other code changes required.
+            simulated. In production, students grant the <span className="font-mono">drive.file</span> scope during
+            Google sign-in — one flow covers identity and storage contribution.
           </p>
         </div>
       </DialogContent>

@@ -1,15 +1,16 @@
-// SomaShare — student-powered learning vault
-// PRODUCTION schema (PostgreSQL — Neon / Supabase / Vercel Postgres).
+// SomaShare — LOCAL DEV / SANDBOX schema (SQLite).
+// Identical models to prisma/schema.prisma (PostgreSQL production) —
+// keep the two files in sync when you change models.
 //
-// Local sandbox development uses prisma/schema.dev.prisma (SQLite) —
-// select it with PRISMA_SCHEMA=prisma/schema.dev.prisma (see .env.example).
+// Usage: PRISMA_SCHEMA=prisma/schema.dev.prisma prisma generate|db push
+// The sandbox .env sets PRISMA_SCHEMA automatically.
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 

@@ -10,6 +10,8 @@ import { RESOURCE_TYPE_LABELS, DRIVE_CONTRIBUTION_REQUIRED, DRIVE_PERKS_THRESHOL
 import { listOffline, removeOffline, formatBytes, openResource } from "./offline";
 import { ResourceSheet } from "./resource-sheet";
 import { DriveConnectDialog } from "./drive-connect-dialog";
+import { AdminPanel } from "./admin-panel";
+import { useAppStore } from "./store";
 import { useToast } from "@/hooks/use-toast";
 
 interface ProfileScreenProps {
@@ -31,6 +33,7 @@ export function ProfileScreen({ user, onSignedOut, onUserRefreshed }: ProfileScr
   const [busySignOut, setBusySignOut] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const googleConfigured = useAppStore((s) => s.googleConfigured);
 
   const { data, refetch } = useQuery({
     queryKey: ["profile", user.id],
@@ -54,6 +57,11 @@ export function ProfileScreen({ user, onSignedOut, onUserRefreshed }: ProfileScr
       });
       toast({ title: "Google Drive disconnected" });
     } else {
+      // Production: consent happens in the Google sign-in flow.
+      if (googleConfigured) {
+        window.location.href = "/api/auth/google/start";
+        return;
+      }
       setDriveDialog(true);
       return;
     }
@@ -180,6 +188,16 @@ export function ProfileScreen({ user, onSignedOut, onUserRefreshed }: ProfileScr
             )}
           </div>
         </section>
+
+        {/* Owner tools (moderation + mailing list) */}
+        {user.isAdmin && (
+          <section aria-label="Owner tools" className="mt-7">
+            <h2 className="text-xs font-bold tracking-widest text-ink">OWNER TOOLS</h2>
+            <div className="mt-3">
+              <AdminPanel />
+            </div>
+          </section>
+        )}
 
         {/* Saved for offline */}
         <section aria-label="Saved for offline" className="mt-7">

@@ -20,6 +20,7 @@ export interface SessionUser {
   yearOfStudy: string;
   driveConnected: boolean;
   driveEmail: string | null;
+  isAdmin?: boolean; // moderation + mailing-list tools (ADMIN_EMAILS env)
 }
 
 export interface UnitDTO {

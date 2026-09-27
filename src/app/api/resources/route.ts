@@ -1,11 +1,18 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth";
-import { getStorageProvider } from "@/lib/storage";
+import { providerForUser } from "@/lib/storage";
+import { decryptToken } from "@/lib/crypto";
+import { limits } from "@/lib/rate-limit";
+import { isProd } from "@/lib/env";
+import { sanitizeFileName, isPdfBytes } from "@/lib/validate";
 import type { ResourceDTO, ResourceType } from "@/lib/types";
 
 const VALID_TYPES: ResourceType[] = ["LECTURE_NOTES", "PAST_PAPER", "REVISION_SLIDES", "ASSIGNMENT"];
 const MAX_FILE_BYTES = 25 * 1024 * 1024; // 25 MB
+
+// Case-insensitive search is native on Postgres; SQLite (sandbox) is case-sensitive.
+const ON_POSTGRES = (process.env.DATABASE_URL ?? "").startsWith("postgres");
 
 function serialize(r: {
   id: string;
@@ -44,11 +51,15 @@ function serialize(r: {
 }
 
 /**
- * GET /api/resources
+ * GET /api/resources — the vault catalog. Requires a signed-in student:
+ * the vault is student-only by design, not a public download site.
+ *
  * Query: unitId?, type?, year?, semester?, q?, mine=1?, limit?
- * Returns resources sorted by newest first.
  */
 export async function GET(req: Request) {
+  const user = await getSessionUser();
+  if (!user) return NextResponse.json({ error: "Sign in required." }, { status: 401 });
+
   const { searchParams } = new URL(req.url);
   const unitId = searchParams.get("unitId") ?? undefined;
   const type = searchParams.get("type") ?? undefined;
@@ -64,16 +75,15 @@ export async function GET(req: Request) {
   if (year && year !== "ALL") where.examYear = parseInt(year, 10);
   if (semester && semester !== "ALL") where.semester = parseInt(semester, 10);
   if (mine) {
-    const user = await getSessionUser();
-    if (!user) return NextResponse.json({ error: "Sign in required." }, { status: 401 });
     where.uploaderId = user.id;
   }
   if (q) {
+    const mode = ON_POSTGRES ? "insensitive" : undefined;
     where.OR = [
-      { title: { contains: q } },
-      { uploaderName: { contains: q } },
-      { unit: { is: { code: { contains: q } } } },
-      { unit: { is: { title: { contains: q } } } },
+      { title: { contains: q, mode } },
+      { uploaderName: { contains: q, mode } },
+      { unit: { is: { code: { contains: q, mode } } } },
+      { unit: { is: { title: { contains: q, mode } } } },
     ];
   }
 
@@ -90,12 +100,17 @@ export async function GET(req: Request) {
 /**
  * POST /api/resources  (multipart/form-data)
  * Fields: unitId, title, type, academicYear, examYear, semester, consent=1,
- *         file (binary) — optional in sandbox demo, a stub PDF is created.
- * Requires: signed-in user + connected Google Drive (BYO storage model).
+ *         file (binary; PDF only — a text stub is allowed in dev when omitted).
+ * Requires: signed-in student + connected Google Drive (BYO storage model).
+ * Uploaded files land in the MODERATION QUEUE (verified=false) until an
+ * admin reviews them.
  */
 export async function POST(req: Request) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "Sign in required." }, { status: 401 });
+  if (!limits.upload(user.id).ok) {
+    return NextResponse.json({ error: "Upload limit reached (10/hour). Try again later." }, { status: 429 });
+  }
 
   let form: FormData;
   try {
@@ -105,9 +120,9 @@ export async function POST(req: Request) {
   }
 
   const unitId = String(form.get("unitId") ?? "");
-  const title = String(form.get("title") ?? "").trim();
+  const title = String(form.get("title") ?? "").trim().slice(0, 200);
   const type = String(form.get("type") ?? "");
-  const academicYear = String(form.get("academicYear") ?? "Year 1");
+  const academicYear = String(form.get("academicYear") ?? "Year 1").slice(0, 20);
   const examYear = parseInt(String(form.get("examYear") ?? "2025"), 10);
   const semester = parseInt(String(form.get("semester") ?? "1"), 10);
   const consent = form.get("consent") === "1" || form.get("consent") === "true";
@@ -142,7 +157,6 @@ export async function POST(req: Request) {
   if (!unit) return NextResponse.json({ error: "Unknown course unit." }, { status: 404 });
 
   // ---- file handling via the storage provider (BYO Google Drive) ----
-  const provider = getStorageProvider();
   let bytes: Buffer;
   let fileName: string;
   let mimeType: string;
@@ -151,9 +165,20 @@ export async function POST(req: Request) {
     if (file.size > MAX_FILE_BYTES) {
       return NextResponse.json({ error: "File too large (max 25 MB)." }, { status: 413 });
     }
+    const declaredOk = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
     bytes = Buffer.from(await file.arrayBuffer());
-    fileName = file.name;
-    mimeType = file.type || "application/octet-stream";
+    if (!declaredOk || !isPdfBytes(bytes)) {
+      return NextResponse.json(
+        { error: "Only real PDF files are accepted (the vault distributes study documents)." },
+        { status: 415 }
+      );
+    }
+    fileName = sanitizeFileName(file.name, "document.pdf");
+    if (!/\.pdf$/i.test(fileName)) fileName = `${fileName}.pdf`;
+    mimeType = "application/pdf";
+  } else if (isProd) {
+    // Production always requires a real file — no implicit stubs in the live vault.
+    return NextResponse.json({ error: "Attach a PDF file to publish." }, { status: 400 });
   } else {
     // No file attached (quick demo path) — publish a manifest stub so the
     // vault entry still exists and downloads work.
@@ -163,6 +188,16 @@ export async function POST(req: Request) {
     );
     fileName = `${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40)}.txt`;
     mimeType = "text/plain";
+  }
+
+  // Resolve the uploader's Drive token (uploads go to THEIR Drive).
+  const dbUser = await db.user.findUnique({ where: { id: user.id } });
+  const provider = providerForUser(dbUser?.driveRefreshToken ? decryptToken(dbUser.driveRefreshToken) : null);
+  if (!provider) {
+    return NextResponse.json(
+      { error: "Your Google Drive access has expired — sign out and sign in again to reconnect." },
+      { status: 409 }
+    );
   }
 
   const stored = await provider.upload(bytes, {
@@ -187,8 +222,8 @@ export async function POST(req: Request) {
       mimeType,
       driveFileId: stored.driveFileId,
       webViewLink: stored.webViewLink,
-      // auto-verify: uploader connected Drive => contribution counts toward perks
-      verified: true,
+      // Moderation: an admin reviews before the "verified" badge appears.
+      verified: false,
     },
     include: { unit: true },
   });

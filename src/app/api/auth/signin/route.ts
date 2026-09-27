@@ -1,77 +1,59 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import {
-  isValidStudentEmail,
-  setSessionCookie,
-  clearSessionCookie,
-  STUDENT_EMAIL_DOMAIN,
-} from "@/lib/auth";
+import { isValidStudentEmail, setSessionCookie } from "@/lib/auth";
+import { isProd, isAdminEmail } from "@/lib/env";
+import { limits } from "@/lib/rate-limit";
 
 /**
- * POST /api/auth/signin
- * Body: { email, name?, department?, yearOfStudy? }
- * Launch restriction: only valid @ku.ac.ke student emails may pass.
+ * POST /api/auth/signin — DEMO SIGN-IN, development only.
+ *
+ * Real sign-in goes through Google OAuth (/api/auth/google/start), which
+ * verifies ownership of the @ku.ac.ke account. This endpoint exists so
+ * the sandbox/preview can be explored without Google credentials; in
+ * production it returns 404.
  */
 export async function POST(req: Request) {
-  try {
-    const body = (await req.json()) as {
-      email?: string;
-      name?: string;
-      department?: string;
-      yearOfStudy?: string;
-    };
-
-    const email = (body.email ?? "").trim().toLowerCase();
-    if (!email) {
-      return NextResponse.json({ error: "Student email is required." }, { status: 400 });
-    }
-    if (!isValidStudentEmail(email)) {
-      return NextResponse.json(
-        { error: `Launch restriction: sign in with your valid ${STUDENT_EMAIL_DOMAIN} student email.` },
-        { status: 403 }
-      );
-    }
-
-    const name = (body.name ?? "").trim() || deriveNameFromEmail(email);
-    const department = (body.department ?? "Engineering").trim();
-    const yearOfStudy = (body.yearOfStudy ?? "Year 3").trim();
-
-    const user = await db.user.upsert({
-      where: { email },
-      update: { name, department, yearOfStudy },
-      create: { email, name, department, yearOfStudy },
-    });
-
-    await setSessionCookie(user.id);
-
-    return NextResponse.json({
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        department: user.department,
-        yearOfStudy: user.yearOfStudy,
-        driveConnected: user.driveConnected,
-        driveEmail: user.driveEmail,
-      },
-    });
-  } catch (err) {
-    console.error("signin error", err);
-    return NextResponse.json({ error: "Sign-in failed. Please try again." }, { status: 500 });
+  if (isProd) return NextResponse.json({ error: "Not found." }, { status: 404 });
+  if (!limits.demoSignin(req).ok) {
+    return NextResponse.json({ error: "Too many attempts — try again shortly." }, { status: 429 });
   }
-}
 
-/** DELETE /api/auth/signout (same handler via POST override below) */
-export async function DELETE() {
-  await clearSessionCookie();
-  return NextResponse.json({ ok: true });
-}
+  const body = (await req.json().catch(() => ({}))) as {
+    email?: string;
+    name?: string;
+    department?: string;
+    yearOfStudy?: string;
+  };
 
-function deriveNameFromEmail(email: string): string {
-  const local = email.split("@")[0] ?? "";
-  return local
-    .split(/[._-]+/)
-    .filter(Boolean)
-    .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
-    .join(" ");
+  const email = (body.email ?? "alex.ochieng@ku.ac.ke").trim().toLowerCase();
+  if (!isValidStudentEmail(email)) {
+    return NextResponse.json({ error: "Demo sign-in still requires a valid @ku.ac.ke email." }, { status: 403 });
+  }
+
+  const name = (body.name ?? "").trim() || "Alex Ochieng";
+  const department = (body.department ?? "Engineering").trim();
+  const yearOfStudy = (body.yearOfStudy ?? "Year 3").trim();
+
+  // In sandbox storage mode uploads write to ./storage, so the demo user
+  // is marked connected without a real Drive token.
+  const user = await db.user.upsert({
+    where: { email },
+    update: {},
+    create: { email, name, department, yearOfStudy, driveConnected: true, driveEmail: email },
+  });
+
+  await setSessionCookie(user.id);
+
+  return NextResponse.json({
+    user: {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      department: user.department,
+      yearOfStudy: user.yearOfStudy,
+      driveConnected: user.driveConnected,
+      driveEmail: user.driveEmail,
+      isAdmin: isAdminEmail(user.email),
+    },
+  });
 }
